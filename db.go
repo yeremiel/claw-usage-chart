@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"strings"
 	"time"
 
 	_ "modernc.org/sqlite"
@@ -296,12 +297,9 @@ func CollectStats(db *sql.DB, agentsDir, startDate, endDate string) (StatsRespon
 	}
 
 	if len(rangeParts) > 0 {
-		dateWhere = "date_key = 'unknown'"
-		for _, p := range rangeParts {
-			dateWhere += " OR " + p
-		}
-		// Wrap in parens for clarity
-		dateWhere = "(" + dateWhere + ")"
+		// unknown records always included; date range parts must ALL match (AND)
+		rangeClause := strings.Join(rangeParts, " AND ")
+		dateWhere = "(date_key = 'unknown' OR (" + rangeClause + "))"
 	} else {
 		dateWhere = "1=1" // no filter
 	}
