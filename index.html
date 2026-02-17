@@ -1,0 +1,854 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Claw Usage Chart</title>
+  <link rel="icon" type="image/svg+xml" href="/favicon.svg">
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.7/dist/chart.umd.min.js"></script>
+  <style>
+    :root {
+      --bg: #0b1118;
+      --bg-soft: #101a25;
+      --panel: rgba(14, 24, 34, 0.9);
+      --panel-border: #223446;
+      --text: #e8f1ff;
+      --muted: #98adc6;
+      --accent: #42d3ff;
+      --accent-2: #4de88e;
+      --accent-3: #ffb84a;
+      --danger: #ff6d6d;
+    }
+
+    * { box-sizing: border-box; }
+
+    body {
+      margin: 0;
+      min-height: 100vh;
+      color: var(--text);
+      background:
+        radial-gradient(circle at 0% 0%, #13324d 0%, transparent 35%),
+        radial-gradient(circle at 100% 20%, #174223 0%, transparent 30%),
+        linear-gradient(170deg, #070c12 0%, #0b1118 55%, #0e1621 100%);
+      font-family: "Space Grotesk", "Pretendard", "Noto Sans KR", sans-serif;
+    }
+
+    /* ── Topbar ─────────────────────────────── */
+    .topbar {
+      position: sticky;
+      top: 0;
+      z-index: 10;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 16px;
+      padding: 16px 20px;
+      background: rgba(8, 14, 22, 0.82);
+      border-bottom: 1px solid var(--panel-border);
+      backdrop-filter: blur(8px);
+    }
+
+    .title-wrap {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      min-width: 0;
+      flex: 1 1 auto;
+      flex-wrap: wrap;
+    }
+
+    .brand {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      min-width: 0;
+    }
+
+    /* OpenClaw logo mark */
+    .mark {
+      width: 32px;
+      height: 32px;
+      border-radius: 8px;
+      background: linear-gradient(135deg, #1e1e2e, #2a1a1a);
+      border: 1px solid rgba(255, 77, 77, 0.3);
+      display: grid;
+      place-items: center;
+      flex-shrink: 0;
+      padding: 4px;
+    }
+
+    .mark svg {
+      width: 22px;
+      height: 22px;
+    }
+
+    h1 {
+      margin: 0;
+      font-size: 18px;
+      letter-spacing: 0.02em;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+
+    /* ── Filter row ─────────────────────────── */
+    .filter-row { display: flex; justify-content: flex-end; }
+
+    .date-filter {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      padding: 4px 0;
+      flex-wrap: wrap;
+      justify-content: flex-end;
+    }
+
+    .quick-range { display: flex; align-items: center; gap: 6px; }
+
+    .range-btn, .apply-btn {
+      border: 1px solid #2b4761;
+      background: linear-gradient(135deg, #162e44, #0f2436);
+      color: #d4e7ff;
+      border-radius: 9px;
+      padding: 6px 10px;
+      font-size: 12px;
+      line-height: 1.2;
+      cursor: pointer;
+      transition: border-color 140ms ease, transform 140ms ease, background 140ms ease;
+    }
+
+    .range-btn:hover, .apply-btn:hover {
+      border-color: #4b779b;
+      transform: translateY(-1px);
+    }
+
+    .range-btn.is-active {
+      border-color: #45d3ff;
+      background: linear-gradient(135deg, rgba(66,211,255,0.25), rgba(25,56,85,0.8));
+      color: #e7f6ff;
+    }
+
+    .date-divider { width: 1px; height: 24px; background: #2b3f53; opacity: 0.9; }
+
+    .date-range { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+
+    .date-input {
+      width: 134px;
+      border: 1px solid #2b4761;
+      background: #0d1824;
+      color: var(--text);
+      border-radius: 9px;
+      padding: 6px 8px;
+      font-size: 12px;
+      color-scheme: dark;
+    }
+
+    .date-input:focus {
+      outline: none;
+      border-color: #48d9ff;
+      box-shadow: 0 0 0 2px rgba(66,211,255,0.14);
+    }
+
+    .range-sep { font-size: 12px; color: var(--muted); }
+
+    .apply-btn {
+      background: linear-gradient(135deg, #164259, #113349);
+      border-color: #355f7d;
+      color: #d9f7ff;
+    }
+
+    /* ── Controls ───────────────────────────── */
+    .controls { display: flex; align-items: center; gap: 10px; flex-shrink: 0; }
+
+    .updated { color: var(--muted); font-size: 12px; white-space: nowrap; }
+
+    .refresh-btn {
+      border: 1px solid #2b4761;
+      background: linear-gradient(135deg, #17334a, #11273a);
+      color: var(--text);
+      border-radius: 10px;
+      padding: 9px 12px;
+      font-size: 13px;
+      cursor: pointer;
+      transition: border-color 140ms ease, transform 140ms ease;
+    }
+
+    .refresh-btn:hover { border-color: #4d7ea4; transform: translateY(-1px); }
+
+    /* ── Layout ─────────────────────────────── */
+    .layout {
+      max-width: 1200px;
+      margin: 0 auto;
+      padding: 18px;
+      display: grid;
+      gap: 16px;
+      animation: fade-in 340ms ease-out;
+    }
+
+    .cards {
+      display: grid;
+      grid-template-columns: repeat(4, minmax(0, 1fr));
+      gap: 12px;
+    }
+
+    .card, .panel {
+      background: var(--panel);
+      border: 1px solid var(--panel-border);
+      border-radius: 14px;
+      box-shadow: 0 16px 28px rgba(0,0,0,0.25);
+    }
+
+    .card { padding: 14px; }
+
+    .label {
+      margin: 0;
+      color: var(--muted);
+      font-size: 11px;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+    }
+
+    .value {
+      margin: 6px 0 4px;
+      font-size: 24px;
+      font-weight: 700;
+      letter-spacing: 0.01em;
+    }
+
+    .sub { margin: 0; font-size: 12px; color: var(--muted); }
+
+    /* ── Charts ─────────────────────────────── */
+    .chart-grid {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 12px;
+    }
+
+    .panel { padding: 14px; }
+    .panel.full { grid-column: 1 / -1; }
+
+    .panel-title {
+      margin: 0 0 10px;
+      font-size: 13px;
+      color: #c7d8ee;
+      letter-spacing: 0.04em;
+      text-transform: uppercase;
+    }
+
+    .canvas-wrap { position: relative; height: 260px; }
+    .canvas-wrap.tall { height: 320px; }
+    .heatmap-wrap { overflow-x: auto; }
+    .hour-labels, .heatmap-grid {
+      display: grid;
+      grid-template-columns: 36px repeat(24, 1fr);
+      gap: 3px;
+      min-width: 560px;
+    }
+    .hour-labels { margin-bottom: 2px; }
+    .hour-label {
+      font-size: 10px;
+      color: #6c8199;
+      text-align: center;
+    }
+    .heatmap-day-label {
+      font-size: 11px;
+      color: #6c8199;
+      display: flex;
+      align-items: center;
+      justify-content: flex-end;
+      padding-right: 6px;
+    }
+    .heatmap-cell {
+      height: 22px;
+      border-radius: 3px;
+      cursor: default;
+    }
+    #hmTooltip {
+      position: fixed;
+      pointer-events: none;
+      background: #1e2d3d;
+      border: 1px solid #2e4a63;
+      color: #c3d5e8;
+      font-size: 12px;
+      padding: 6px 10px;
+      border-radius: 6px;
+      white-space: nowrap;
+      z-index: 999;
+      display: none;
+      line-height: 1.6;
+    }
+
+    /* ── Table ──────────────────────────────── */
+    table { width: 100%; border-collapse: collapse; font-size: 13px; }
+
+    th, td { padding: 8px 4px; border-bottom: 1px solid #1e3142; text-align: left; }
+
+    th { color: var(--muted); font-size: 11px; letter-spacing: 0.08em; text-transform: uppercase; }
+
+    td.num, th.num { text-align: right; }
+
+    tr:last-child td { border-bottom: none; }
+
+    /* ── Status ─────────────────────────────── */
+    .status { margin: 0; color: var(--muted); font-size: 13px; min-height: 20px; }
+    .error { color: var(--danger); }
+
+    /* ── Responsive ─────────────────────────── */
+    @media (max-width: 980px) {
+      .cards { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+      .chart-grid { grid-template-columns: 1fr; }
+      .date-filter { width: 100%; }
+    }
+
+    @media (max-width: 560px) {
+      .topbar { flex-direction: column; align-items: flex-start; }
+      .title-wrap, .brand { width: 100%; }
+      .date-divider { display: none; }
+      .date-input { width: 126px; }
+      .controls { width: 100%; justify-content: space-between; }
+      .cards { grid-template-columns: 1fr; }
+    }
+
+    @keyframes fade-in {
+      from { opacity: 0; transform: translateY(8px); }
+      to   { opacity: 1; transform: translateY(0); }
+    }
+  </style>
+</head>
+<body>
+<div id="hmTooltip"></div>
+  <header class="topbar">
+    <div class="title-wrap">
+      <div class="brand">
+        <div class="mark">
+          <!-- OpenClaw official icon -->
+          <svg viewBox="0 0 120 120" fill="none" xmlns="http://www.w3.org/2000/svg">
+            <defs>
+              <linearGradient id="lg" x1="0%" y1="0%" x2="100%" y2="100%">
+                <stop offset="0%" stop-color="#ff4d4d"/>
+                <stop offset="100%" stop-color="#991b1b"/>
+              </linearGradient>
+            </defs>
+            <path d="M60 10 C30 10 15 35 15 55 C15 75 30 95 45 100 L45 110 L55 110 L55 100 C55 100 60 102 65 100 L65 110 L75 110 L75 100 C90 95 105 75 105 55 C105 35 90 10 60 10Z" fill="url(#lg)"/>
+            <path d="M20 45 C5 40 0 50 5 60 C10 70 20 65 25 55 C28 48 25 45 20 45Z" fill="url(#lg)"/>
+            <path d="M100 45 C115 40 120 50 115 60 C110 70 100 65 95 55 C92 48 95 45 100 45Z" fill="url(#lg)"/>
+            <path d="M45 15 Q35 5 30 8" stroke="#ff4d4d" stroke-width="3" stroke-linecap="round"/>
+            <path d="M75 15 Q85 5 90 8" stroke="#ff4d4d" stroke-width="3" stroke-linecap="round"/>
+            <circle cx="45" cy="35" r="6" fill="#050810"/>
+            <circle cx="75" cy="35" r="6" fill="#050810"/>
+            <circle cx="46" cy="34" r="2.5" fill="#00e5cc"/>
+            <circle cx="76" cy="34" r="2.5" fill="#00e5cc"/>
+          </svg>
+        </div>
+        <h1>Claw Usage Chart</h1>
+      </div>
+    </div>
+    <div class="controls">
+      <span class="updated" id="updatedAt">Updated: -</span>
+      <select class="date-input" id="autoInterval" style="width:auto;padding:6px 8px;">
+        <option value="10">10s</option>
+        <option value="30" selected>30s</option>
+        <option value="60">1m</option>
+        <option value="300">5m</option>
+      </select>
+      <button class="refresh-btn" id="autoRefreshBtn" type="button">⏸ Auto-refresh OFF</button>
+      <button class="refresh-btn" id="refreshBtn" type="button">Refresh</button>
+    </div>
+  </header>
+
+  <main class="layout">
+    <p class="status" id="statusText">Loading data…</p>
+
+    <div class="filter-row">
+      <div class="date-filter" aria-label="Date filter">
+        <div class="quick-range" role="group" aria-label="Quick range">
+          <button class="range-btn" data-range="today" type="button">Today</button>
+          <button class="range-btn" data-range="7d" type="button">7d</button>
+          <button class="range-btn" data-range="30d" type="button">30d</button>
+          <button class="range-btn" data-range="all" type="button">All</button>
+        </div>
+        <span class="date-divider" aria-hidden="true"></span>
+        <div class="date-range">
+          <input class="date-input" id="startDate" type="date" aria-label="Start date">
+          <span class="range-sep">–</span>
+          <input class="date-input" id="endDate" type="date" aria-label="End date">
+          <button class="apply-btn" id="applyDateFilterBtn" type="button">Apply</button>
+        </div>
+      </div>
+    </div>
+
+    <section class="cards">
+      <article class="card">
+        <p class="label">Total Tokens</p>
+        <p class="value" id="totalTokens">-</p>
+        <p class="sub" id="totalCost" style="color:#4de88e;font-weight:600;">-</p>
+        <p class="sub" id="recordCount">-</p>
+      </article>
+      <article class="card">
+        <p class="label">Session Files</p>
+        <p class="value" id="sessionFiles">-</p>
+        <p class="sub" id="agentCacheInfo">-</p>
+      </article>
+      <article class="card">
+        <p class="label">Agents</p>
+        <p class="value" id="agentCount">-</p>
+        <p class="sub">agents with token usage</p>
+      </article>
+      <article class="card">
+        <p class="label">Models</p>
+        <p class="value" id="modelCount">-</p>
+        <p class="sub" id="dayCount">-</p>
+      </article>
+    </section>
+
+    <section class="chart-grid">
+      <section class="panel">
+        <h2 class="panel-title">Tokens by Agent</h2>
+        <div class="canvas-wrap"><canvas id="agentChart"></canvas></div>
+      </section>
+
+      <section class="panel">
+        <h2 class="panel-title">Tokens by Model</h2>
+        <div class="canvas-wrap"><canvas id="modelChart"></canvas></div>
+      </section>
+
+      <section class="panel full">
+        <h2 class="panel-title">Daily Token Usage</h2>
+        <div class="canvas-wrap tall"><canvas id="dailyChart"></canvas></div>
+      </section>
+
+      <section class="panel full">
+        <h2 class="panel-title">Usage Heatmap</h2>
+        <p class="sub" style="margin-bottom:12px">Token usage by hour of day × day of week</p>
+        <div class="heatmap-wrap">
+          <div class="hour-labels" id="heatmapHourLabels"></div>
+          <div class="heatmap-grid" id="heatmapGrid"></div>
+        </div>
+        <p id="heatmapEmpty" style="color:#6c8199;font-size:13px;display:none">No heatmap data yet.</p>
+      </section>
+    </section>
+
+    <section class="panel">
+      <h2 class="panel-title">Model Details (Top 12)</h2>
+      <table>
+        <thead>
+          <tr>
+            <th>Model</th>
+            <th class="num">Tokens</th>
+            <th class="num">Cost ($)</th>
+            <th class="num">Records</th>
+          </tr>
+        </thead>
+        <tbody id="modelTableBody"></tbody>
+      </table>
+    </section>
+  </main>
+
+  <script>
+    Chart.defaults.color = '#9fb5ce';
+    Chart.defaults.borderColor = '#1e3142';
+    Chart.defaults.font.family = 'Space Grotesk, Pretendard, Noto Sans KR, sans-serif';
+
+    const charts = {};
+
+    function formatNumber(v) {
+      return Number(v || 0).toLocaleString('en-US');
+    }
+
+    function formatTokens(v) {
+      const n = Number(v || 0);
+      if (n >= 1e9) return (n / 1e9).toFixed(1) + 'B';
+      if (n >= 1e6) return (n / 1e6).toFixed(1) + 'M';
+      if (n >= 1e3) return (n / 1e3).toFixed(1) + 'K';
+      return String(n);
+    }
+
+    function formatCost(v) {
+      return `$${Number(v || 0).toFixed(2)}`;
+    }
+
+    function toDateKey(d) {
+      return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
+    }
+
+    function getPresetRange(preset) {
+      const now = new Date();
+      const today = toDateKey(now);
+      if (preset === 'today') return { start: today, end: today };
+      if (preset === '7d') {
+        const from = new Date(now.getFullYear(), now.getMonth(), now.getDate() - 6);
+        return { start: toDateKey(from), end: today };
+      }
+      if (preset === '30d') {
+        const from = new Date(now.getFullYear(), now.getMonth(), now.getDate() - 29);
+        return { start: toDateKey(from), end: today };
+      }
+      if (preset === 'all') return { start: '', end: '' };
+      return { start: today, end: today };
+    }
+
+    function setDateInputs(range) {
+      document.getElementById('startDate').value = range.start;
+      document.getElementById('endDate').value = range.end;
+    }
+
+    function setActivePreset(preset) {
+      document.querySelectorAll('.range-btn').forEach(btn => {
+        btn.classList.toggle('is-active', btn.dataset.range === preset);
+      });
+    }
+
+    function destroyChart(name) {
+      if (!charts[name]) return;
+      charts[name].destroy();
+      delete charts[name];
+    }
+
+    function normalizeModelPie(items, topN = 8) {
+      if (items.length <= topN) return items;
+      const top = items.slice(0, topN);
+      const rest = items.slice(topN);
+      top.push({
+        model: 'other',
+        tokens: rest.reduce((s, i) => s + i.tokens, 0),
+        records: rest.reduce((s, i) => s + i.records, 0),
+        cost: rest.reduce((s, i) => s + (i.cost || 0), 0),
+      });
+      return top;
+    }
+
+    function updateSummary(stats) {
+      const s = stats.summary || {};
+      document.getElementById('totalTokens').textContent  = formatTokens(s.total_tokens);
+      document.getElementById('totalCost').textContent    = formatCost(s.total_cost);
+      document.getElementById('recordCount').textContent  = `${formatNumber(s.usage_records)} usage records`;
+      document.getElementById('sessionFiles').textContent = formatNumber(s.session_files);
+      document.getElementById('agentCacheInfo').textContent = `${formatNumber(s.agent_count)} agent(s) tracked`;
+      document.getElementById('agentCount').textContent   = formatNumber(s.agent_count);
+      document.getElementById('modelCount').textContent   = formatNumber(s.model_count);
+      document.getElementById('dayCount').textContent     = `${formatNumber(s.day_count)} days`;
+
+      const sync = stats.sync || {};
+      const at = stats.generated_at ? new Date(stats.generated_at) : null;
+      const timeStr = at && !isNaN(at) ? at.toLocaleString('en-US', { hour12: false }) : '-';
+      const newRec = sync.new_records != null ? ` (+${sync.new_records} new)` : '';
+      document.getElementById('updatedAt').textContent = `Updated: ${timeStr}${newRec}`;
+    }
+
+    function updateModelTable(modelTotals) {
+      const body = document.getElementById('modelTableBody');
+      const rows = modelTotals.slice(0, 12).map(item => `
+        <tr>
+          <td>${item.model}</td>
+          <td class="num">${formatTokens(item.tokens)}</td>
+          <td class="num" style="color:#4de88e">${formatCost(item.cost)}</td>
+          <td class="num">${formatNumber(item.records)}</td>
+        </tr>
+      `);
+      body.innerHTML = rows.length ? rows.join('') : '<tr><td colspan="4">No data.</td></tr>';
+    }
+
+    const PALETTE = ['#42d3ff','#4de88e','#ffb84a','#78f0d4','#5f9dff','#f78357','#8bcf7a','#d7aa5f','#5f6979'];
+
+    function renderStaticCharts(stats) {
+      const agentTotals = stats.agent_totals || [];
+      const modelTotals = stats.model_totals || [];
+      const pieSource   = normalizeModelPie(modelTotals, 8);
+
+      destroyChart('agent');
+      destroyChart('model');
+
+      charts.agent = new Chart(document.getElementById('agentChart'), {
+        type: 'bar',
+        data: {
+          labels: agentTotals.map(i => i.agent),
+          datasets: [{
+            data: agentTotals.map(i => i.tokens),
+            label: 'Tokens',
+            borderRadius: 8,
+            backgroundColor: PALETTE,
+          }]
+        },
+        options: {
+          responsive: true,
+          maintainAspectRatio: false,
+          plugins: {
+            legend: { display: false },
+            tooltip: {
+              callbacks: {
+                title: items => agentTotals[items[0].dataIndex]?.agent,
+                label: ctx => {
+                  const item = agentTotals[ctx.dataIndex];
+                  return [` Tokens: ${formatTokens(item.tokens)}`, ` Cost: ${formatCost(item.cost)}`, ` Records: ${formatNumber(item.records)}`];
+                }
+              }
+            }
+          },
+          scales: {
+            x: { grid: { display: false } },
+            y: { ticks: { callback: v => formatTokens(Number(v)) } }
+          }
+        }
+      });
+
+      charts.model = new Chart(document.getElementById('modelChart'), {
+        type: 'pie',
+        data: {
+          labels: pieSource.map(i => i.model),
+          datasets: [{ data: pieSource.map(i => i.tokens), backgroundColor: PALETTE }]
+        },
+        options: {
+          responsive: true,
+          maintainAspectRatio: false,
+          plugins: {
+            legend: { position: 'bottom', labels: { boxWidth: 12, color: '#c3d5e8' } },
+            tooltip: {
+              callbacks: {
+                title: items => pieSource[items[0].dataIndex]?.model,
+                label: ctx => {
+                  const item = pieSource[ctx.dataIndex];
+                  return [` Tokens: ${formatTokens(item.tokens)}`, ` Cost: ${formatCost(item.cost)}`];
+                }
+              }
+            }
+          }
+        }
+      });
+    }
+
+    function renderDailyChart(dailyTokens) {
+      destroyChart('daily');
+
+      // Pad with nulls when few points so data appears centred, not left-anchored
+      const PAD_THRESHOLD = 5;
+      let labels = dailyTokens.map(i => i.date);
+      let values = dailyTokens.map(i => i.tokens);
+      let padOffset = 0;
+      if (dailyTokens.length < PAD_THRESHOLD) {
+        const pad = Math.ceil((PAD_THRESHOLD - dailyTokens.length) / 2) + 1;
+        padOffset = pad;
+        labels = [...Array(pad).fill(''), ...labels, ...Array(pad).fill('')];
+        values = [...Array(pad).fill(null), ...values, ...Array(pad).fill(null)];
+      }
+
+      charts.daily = new Chart(document.getElementById('dailyChart'), {
+        type: 'line',
+        data: {
+          labels,
+          datasets: [{
+            label: 'Daily Tokens',
+            data: values,
+            borderColor: '#4de88e',
+            backgroundColor: 'rgba(77,232,142,0.15)',
+            pointRadius: 2,
+            pointHoverRadius: 4,
+            borderWidth: 2,
+            fill: true,
+            tension: 0.25,
+            spanGaps: false,
+          }]
+        },
+        options: {
+          responsive: true,
+          maintainAspectRatio: false,
+          interaction: { mode: 'index', intersect: false },
+          plugins: {
+            legend: { display: false },
+            tooltip: {
+              filter: item => dailyTokens[item.dataIndex - padOffset] != null,
+              callbacks: {
+                title: items => dailyTokens[items[0].dataIndex - padOffset]?.date,
+                label: ctx => {
+                  const item = dailyTokens[ctx.dataIndex - padOffset];
+                  if (!item) return '';
+                  return [` Tokens: ${formatTokens(item.tokens)}`, ` Cost: ${formatCost(item.cost)}`, ` Records: ${formatNumber(item.records)}`];
+                }
+              }
+            }
+          },
+          scales: {
+            x: { ticks: { maxRotation: 0, autoSkip: true, maxTicksLimit: 12 } },
+            y: { ticks: { callback: v => formatTokens(Number(v)) } }
+          }
+        }
+      });
+    }
+
+    const DAYS = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
+
+    // Custom floating tooltip for heatmap cells
+    const _hmTip = document.getElementById('hmTooltip');
+    document.addEventListener('mousemove', e => {
+      if (_hmTip.style.display !== 'none') {
+        _hmTip.style.left = (e.clientX + 14) + 'px';
+        _hmTip.style.top  = (e.clientY - 10) + 'px';
+      }
+    });
+
+    function renderHeatmap(heatmap) {
+      const grid      = document.getElementById('heatmapGrid');
+      const hourLabels = document.getElementById('heatmapHourLabels');
+      const empty     = document.getElementById('heatmapEmpty');
+
+      if (!heatmap || heatmap.length === 0) {
+        grid.style.display = 'none';
+        hourLabels.style.display = 'none';
+        empty.style.display = '';
+        return;
+      }
+      grid.style.display = '';
+      hourLabels.style.display = '';
+      empty.style.display = 'none';
+
+      // Build lookup: dow → hour → entry
+      const lookup = {};
+      let maxTokens = 0;
+      for (const e of heatmap) {
+        if (!lookup[e.dow]) lookup[e.dow] = {};
+        lookup[e.dow][e.hour] = e;
+        if (e.tokens > maxTokens) maxTokens = e.tokens;
+      }
+
+      // Hour labels row (0–23)
+      hourLabels.innerHTML = '<div></div>' +
+        Array.from({ length: 24 }, (_, h) =>
+          `<div class="hour-label">${h}</div>`
+        ).join('');
+
+      // Grid: 7 rows × 24 cells
+      grid.innerHTML = '';
+      for (let dow = 0; dow < 7; dow++) {
+        const label = document.createElement('div');
+        label.className = 'heatmap-day-label';
+        label.textContent = DAYS[dow];
+        grid.appendChild(label);
+
+        for (let h = 0; h < 24; h++) {
+          const cell = document.createElement('div');
+          cell.className = 'heatmap-cell';
+          const e = lookup[dow]?.[h];
+          const intensity = e && maxTokens > 0 ? e.tokens / maxTokens : 0;
+          cell.style.backgroundColor = intensity > 0
+            ? `rgba(77,232,142,${Math.max(0.08, intensity).toFixed(2)})`
+            : 'rgba(255,255,255,0.04)';
+          if (e) {
+            cell.addEventListener('mouseenter', () => {
+              _hmTip.innerHTML = `<b>${DAYS[dow]} ${String(h).padStart(2,'0')}:00</b><br>${formatTokens(e.tokens)} tokens &nbsp;·&nbsp; ${formatCost(e.cost)}`;
+              _hmTip.style.display = 'block';
+            });
+            cell.addEventListener('mouseleave', () => { _hmTip.style.display = 'none'; });
+          }
+          grid.appendChild(cell);
+        }
+      }
+    }
+
+    async function applyDateFilter() {
+      const status = document.getElementById('statusText');
+      const start  = document.getElementById('startDate').value;
+      const end    = document.getElementById('endDate').value;
+
+      if (start && end && start > end) {
+        status.classList.add('error');
+        status.textContent = 'Start date cannot be after end date.';
+        return;
+      }
+
+      status.classList.remove('error');
+      status.textContent = 'Loading…';
+
+      try {
+        const qs = new URLSearchParams();
+        if (start) qs.set('start', start);
+        if (end)   qs.set('end', end);
+        const res = await fetch(`/api/stats?${qs}`, { cache: 'no-store' });
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        const stats = await res.json();
+
+        updateSummary(stats);
+        renderStaticCharts(stats);
+        renderDailyChart((stats.daily_tokens || []).filter(i => i.date !== 'unknown'));
+        renderHeatmap(stats.heatmap || []);
+        updateModelTable(stats.model_totals || []);
+        status.textContent = '';
+      } catch (err) {
+        status.classList.add('error');
+        status.textContent = `Error: ${err.message}`;
+      }
+    }
+
+    // Date filter buttons
+    document.querySelectorAll('.range-btn').forEach(btn => {
+      btn.addEventListener('click', () => {
+        const preset = btn.dataset.range;
+        setDateInputs(getPresetRange(preset));
+        setActivePreset(preset);
+        applyDateFilter();
+      });
+    });
+
+    ['startDate','endDate'].forEach(id => {
+      document.getElementById(id).addEventListener('change', () => setActivePreset(''));
+    });
+
+    document.getElementById('applyDateFilterBtn').addEventListener('click', () => {
+      setActivePreset('');
+      applyDateFilter();
+    });
+
+    // Auto-refresh
+    let autoTimer = null;
+    let countdownTimer = null;
+    let countdownRemaining = 0;
+
+    function startAutoRefresh() {
+      const secs = Number(document.getElementById('autoInterval').value);
+      stopAutoRefresh();
+      countdownRemaining = secs;
+      const btn = document.getElementById('autoRefreshBtn');
+      btn.style.borderColor = '#4de88e';
+      btn.style.color = '#4de88e';
+
+      const tick = () => {
+        countdownRemaining -= 1;
+        if (countdownRemaining <= 0) countdownRemaining = secs;
+        btn.textContent = `▶ Refresh in ${countdownRemaining}s`;
+      };
+      tick();
+      countdownTimer = setInterval(tick, 1000);
+
+      autoTimer = setInterval(() => {
+        applyDateFilter();
+        countdownRemaining = secs;
+      }, secs * 1000);
+    }
+
+    function stopAutoRefresh() {
+      if (autoTimer)     { clearInterval(autoTimer);     autoTimer = null; }
+      if (countdownTimer){ clearInterval(countdownTimer); countdownTimer = null; }
+      const btn = document.getElementById('autoRefreshBtn');
+      btn.textContent = '⏸ Auto-refresh OFF';
+      btn.style.borderColor = '';
+      btn.style.color = '';
+    }
+
+    document.getElementById('autoRefreshBtn').addEventListener('click', () => {
+      autoTimer ? stopAutoRefresh() : startAutoRefresh();
+    });
+
+    document.getElementById('autoInterval').addEventListener('change', () => {
+      if (autoTimer) startAutoRefresh();
+    });
+
+    document.getElementById('refreshBtn').addEventListener('click', () => {
+      applyDateFilter();
+      if (autoTimer) startAutoRefresh();
+    });
+
+    // Initial load
+    setDateInputs(getPresetRange('today'));
+    setActivePreset('today');
+    applyDateFilter();
+  </script>
+</body>
+</html>
