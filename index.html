@@ -404,7 +404,7 @@
     <section class="chart-grid">
       <section class="panel">
         <h2 class="panel-title">Tokens by Agent</h2>
-        <div class="canvas-wrap" id="agentChartWrap"><canvas id="agentChart"></canvas></div>
+        <div class="canvas-wrap"><canvas id="agentChart"></canvas></div>
       </section>
 
       <section class="panel">
@@ -558,10 +558,6 @@
       destroyChart('agent');
       destroyChart('model');
 
-      // Adjust height so every agent row is comfortably visible
-      const agentWrap = document.getElementById('agentChartWrap');
-      agentWrap.style.height = Math.max(160, agentTotals.length * 48 + 40) + 'px';
-
       charts.agent = new Chart(document.getElementById('agentChart'), {
         type: 'bar',
         data: {
@@ -569,13 +565,11 @@
           datasets: [{
             data: agentTotals.map(i => i.tokens),
             label: 'Tokens',
-            borderRadius: 6,
+            borderRadius: 8,
             backgroundColor: PALETTE,
-            barThickness: 28,
           }]
         },
         options: {
-          indexAxis: 'y',
           responsive: true,
           maintainAspectRatio: false,
           plugins: {
@@ -591,8 +585,8 @@
             }
           },
           scales: {
-            x: { ticks: { callback: v => formatTokens(Number(v)) } },
-            y: { grid: { display: false } }
+            x: { grid: { display: false } },
+            y: { ticks: { callback: v => formatTokens(Number(v)) } }
           }
         }
       });
