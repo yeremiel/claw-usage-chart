@@ -4,3 +4,4 @@ usage_cache.db-wal
 claw-usage-chart
 claw-usage-chart.exe
 __debug_bin
+.DS_Store
