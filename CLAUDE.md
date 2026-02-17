@@ -2,62 +2,62 @@
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
-## 프로젝트 개요
+## Overview
 
-OpenClaw 토큰 사용량과 API 비용을 시각화하는 로컬 웹 대시보드. 단일 Go 바이너리로 빌드되며, `index.html`과 `favicon.svg`는 `//go:embed`로 바이너리에 포함된다.
+A lightweight local web dashboard for visualizing [OpenClaw](https://github.com/openclaw/openclaw) token usage and API costs. Builds as a single Go binary; `index.html` and `favicon.svg` are embedded via `//go:embed`.
 
-## 빌드 및 실행
+## Build & Run
 
 ```bash
-go build -o claw-usage-chart .    # 빌드
-./claw-usage-chart                # 실행 (기본 http://localhost:8585)
-go run .                          # 빌드 없이 실행
+go build -o claw-usage-chart .    # build
+./claw-usage-chart                # run (default: http://localhost:8585)
+go run .                          # run without producing a binary
 ```
 
-환경 변수로 설정 변경:
-- `OCL_PORT` (기본 `8585`), `OCL_HOST` (기본 `0.0.0.0`)
-- `OCL_AGENTS_DIR` (기본 `~/.openclaw/agents`) — JSONL 세션 파일 위치
-- `OCL_DB_PATH` (기본 바이너리 디렉터리의 `usage_cache.db`)
+Environment variables:
+- `OCL_PORT` (default `8585`), `OCL_HOST` (default `0.0.0.0`)
+- `OCL_AGENTS_DIR` (default `~/.openclaw/agents`) — path to OpenClaw JSONL session files
+- `OCL_DB_PATH` (default `usage_cache.db` next to the binary)
 
-## 아키텍처
+## Architecture
 
-단일 패키지(`main`), 3개 Go 파일로 구성:
+Single package (`main`), three Go files:
 
-- **main.go** — HTTP 서버, 라우팅(`/`, `/favicon.svg`, `/api/stats`, `/health`), `embed.FS`로 정적 파일 제공
-- **parser.go** — `~/.openclaw/agents/<agent>/sessions/*.jsonl` 파일 탐색(`IterSessionFiles`), JSONL 한 줄을 `UsageRecord`로 파싱(`ParseLine`). 다양한 JSONL 포맷(camelCase/snake_case, 중첩 message 등)을 유연하게 처리
-- **db.go** — SQLite 캐시 계층. 파일별 바이트 오프셋 추적으로 증분 동기화(`Sync`), 집계 쿼리(`CollectStats`). WAL 모드 사용
+- **main.go** — HTTP server, routing (`/`, `/favicon.svg`, `/api/stats`, `/health`), serves static files via `embed.FS`
+- **parser.go** — walks `~/.openclaw/agents/<agent>/sessions/*.jsonl` (`IterSessionFiles`), parses each line into a `UsageRecord` (`ParseLine`). Handles multiple JSONL formats (camelCase/snake_case, nested `message.usage`, etc.)
+- **db.go** — SQLite cache layer. Incremental sync via per-file byte-offset tracking (`Sync`), aggregation queries (`CollectStats`). Uses WAL mode.
 
-**요청 흐름**: `/api/stats?start=&end=` → `CollectStats` → `Sync`(새 바이트만 파싱→SQLite 삽입) → 집계 쿼리(에이전트별/모델별/일별/히트맵) → JSON 응답
+**Request flow**: `/api/stats?start=&end=` → `CollectStats` → `Sync` (parse only new bytes → insert into SQLite) → aggregation queries (per-agent / per-model / daily / heatmap) → JSON response
 
-## 주요 의존성
+## Dependencies
 
-- `modernc.org/sqlite` — 순수 Go SQLite 드라이버 (CGo 불필요)
-- Chart.js — 프론트엔드 차트 (index.html 내 CDN)
+- `modernc.org/sqlite` — pure Go SQLite driver (no CGo required)
+- Chart.js — frontend charting via CDN (inside `index.html`)
 
-## SQLite 스키마
+## SQLite Schema
 
 ```sql
--- 파일별 마지막 읽기 위치 추적
+-- Tracks the last read position per file
 CREATE TABLE file_state (
     file_path   TEXT PRIMARY KEY,
     agent_name  TEXT    NOT NULL,
     last_offset INTEGER NOT NULL DEFAULT 0
 );
 
--- 파싱된 usage 레코드 캐시
+-- Cached usage records
 CREATE TABLE usage_records (
     id          INTEGER PRIMARY KEY AUTOINCREMENT,
     agent_name  TEXT    NOT NULL,
     model       TEXT    NOT NULL,
-    date_key    TEXT    NOT NULL,  -- "YYYY-MM-DD" 또는 "unknown"
+    date_key    TEXT    NOT NULL,  -- "YYYY-MM-DD" or "unknown"
     tokens      INTEGER NOT NULL,
     cost        REAL    NOT NULL DEFAULT 0.0,
-    hour        INTEGER,           -- 0-23, 로컬 시간 기준 (NULL 가능)
-    dow         INTEGER            -- 0=월 ~ 6=일 (NULL 가능)
+    hour        INTEGER,           -- 0-23, local time (nullable)
+    dow         INTEGER            -- 0=Mon .. 6=Sun (nullable)
 );
 ```
 
-## /api/stats 응답 형태
+## /api/stats Response Shape
 
 ```json
 {
@@ -80,11 +80,11 @@ CREATE TABLE usage_records (
 }
 ```
 
-쿼리 파라미터: `?start=YYYY-MM-DD&end=YYYY-MM-DD` (둘 다 생략 시 전체 기간)
+Query params: `?start=YYYY-MM-DD&end=YYYY-MM-DD` (omit both for all-time data)
 
-## JSONL 레코드 예시
+## JSONL Record Examples
 
-파서가 처리하는 주요 포맷:
+The parser handles these main formats:
 
 ```jsonl
 {"type":"assistant","timestamp":"2026-02-17T14:00:00.000Z","model":"claude-sonnet-4-5","costUsd":0.012,"message":{"usage":{"input_tokens":1000,"output_tokens":500,"cache_read_input_tokens":2000,"cache_creation_input_tokens":0}}}
@@ -92,12 +92,11 @@ CREATE TABLE usage_records (
 ```
 
 `total_tokens` = `input_tokens + output_tokens + cache_read_input_tokens + cache_creation_input_tokens`  
-`usage` 필드는 레코드 최상위 또는 `message.usage` 안에 있을 수 있음
+The `usage` field may be at the record's top level or nested inside `message.usage`.
 
-## 주의사항
+## Notes
 
-- `index.html` 수정 시 `go build`를 다시 해야 바이너리에 반영됨 (`//go:embed`)  
-  개발 중 빠른 반복이 필요하면 `go run .` 사용 — 매번 재컴파일하지만 빌드 파일 불필요
-- SQLite 스키마 변경 시 `ensureSchema`의 마이그레이션 로직 확인 필요 (현재는 hour/dow 컬럼 누락 시 테이블 drop & rebuild)
-- DB 초기화 필요 시: `rm usage_cache.db` 후 재실행하면 자동으로 전체 재파싱
-- 테스트 파일 없음 — 테스트 추가 시 `*_test.go` 파일 생성
+- Editing `index.html` requires a rebuild (`go build`) to take effect due to `//go:embed`. Use `go run .` during UI iteration to skip the manual build step.
+- When changing the SQLite schema, review the migration logic in `ensureSchema` (currently drops and rebuilds tables when `hour`/`dow` columns are missing).
+- To reset the cache: `rm usage_cache.db` — the next run will re-parse all files from scratch.
+- No test files exist yet. Add tests in `*_test.go` files.
