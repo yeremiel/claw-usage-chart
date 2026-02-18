@@ -100,3 +100,11 @@ The `usage` field may be at the record's top level or nested inside `message.usa
 - When changing the SQLite schema, review the migration logic in `ensureSchema` (currently drops and rebuilds tables when `hour`/`dow` columns are missing).
 - To reset the cache: `rm usage_cache.db` — the next run will re-parse all files from scratch.
 - No test files exist yet. Add tests in `*_test.go` files.
+
+## Git Workflow (Protected `main`)
+
+- The `main` branch is protected and cannot be pushed to directly.
+- All changes must be merged via Pull Request (PR) only.
+- Required PR conversations must be resolved before merge.
+- Do not bypass branch protection requirements.
+- Force pushes and branch deletions on `main` are not allowed.
