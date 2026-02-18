@@ -7,6 +7,7 @@ import (
 	"io"
 	"os"
 	"strings"
+	"sync"
 	"time"
 
 	_ "modernc.org/sqlite"
@@ -27,12 +28,16 @@ CREATE TABLE IF NOT EXISTS usage_records (
     tokens      INTEGER NOT NULL,
     cost        REAL    NOT NULL DEFAULT 0.0,
     hour        INTEGER,
-    dow         INTEGER
+    dow         INTEGER,
+    source_file TEXT    NOT NULL,
+    source_offset INTEGER NOT NULL
 );
 
 CREATE INDEX IF NOT EXISTS idx_rec_agent ON usage_records(agent_name);
 CREATE INDEX IF NOT EXISTS idx_rec_model ON usage_records(model);
 CREATE INDEX IF NOT EXISTS idx_rec_date  ON usage_records(date_key);
+CREATE INDEX IF NOT EXISTS idx_rec_source_file ON usage_records(source_file);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_rec_source_line ON usage_records(source_file, source_offset);
 `
 
 // openDB opens (or creates) the SQLite database at dbPath.
@@ -57,23 +62,42 @@ func openDB(dbPath string) (*sql.DB, error) {
 }
 
 // ensureSchema creates the tables and indices if needed.
-// If the table is missing the hour/dow columns it drops and rebuilds everything.
+// If required columns are missing it drops and rebuilds cache tables.
 func ensureSchema(db *sql.DB) error {
-	// Check if hour/dow columns exist
+	requiredUsageCols := map[string]bool{
+		"hour":          false,
+		"dow":           false,
+		"source_file":   false,
+		"source_offset": false,
+	}
+
 	rows, err := db.Query("PRAGMA table_info(usage_records)")
 	if err == nil {
-		cols := map[string]bool{}
+		var sawUsageTableColumn bool
 		for rows.Next() {
+			sawUsageTableColumn = true
 			var cid int
 			var name, ctype string
 			var notnull, dflt, pk interface{}
 			if err := rows.Scan(&cid, &name, &ctype, &notnull, &dflt, &pk); err == nil {
-				cols[name] = true
+				if _, ok := requiredUsageCols[name]; ok {
+					requiredUsageCols[name] = true
+				}
 			}
 		}
 		rows.Close()
-		if len(cols) > 0 && (!cols["hour"] || !cols["dow"]) {
-			// Drop and rebuild
+
+		needsRebuild := false
+		if sawUsageTableColumn {
+			for _, exists := range requiredUsageCols {
+				if !exists {
+					needsRebuild = true
+					break
+				}
+			}
+		}
+
+		if needsRebuild {
 			if _, err := db.Exec("DROP TABLE IF EXISTS usage_records"); err != nil {
 				return err
 			}
@@ -93,8 +117,14 @@ type SyncResult struct {
 	SkippedFiles int `json:"skipped_files"`
 }
 
+var syncMu sync.Mutex
+
 // Sync parses only new bytes from JSONL files and persists them to SQLite.
 func Sync(db *sql.DB, agentsDir string) (SyncResult, error) {
+	// Prevent concurrent sync runs from inserting the same file segment twice.
+	syncMu.Lock()
+	defer syncMu.Unlock()
+
 	files, err := IterSessionFiles(agentsDir)
 	if err != nil {
 		return SyncResult{}, err
@@ -109,117 +139,162 @@ func Sync(db *sql.DB, agentsDir string) (SyncResult, error) {
 	defer tx.Rollback()
 
 	insertRec, err := tx.Prepare(`
-		INSERT INTO usage_records (agent_name, model, date_key, tokens, cost, hour, dow)
-		VALUES (?, ?, ?, ?, ?, ?, ?)`)
+		INSERT INTO usage_records (agent_name, model, date_key, tokens, cost, hour, dow, source_file, source_offset)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`)
 	if err != nil {
 		return SyncResult{}, err
 	}
 	defer insertRec.Close()
 
 	for _, sf := range files {
-		// Get last offset
-		var lastOffset int64
-		var hasRow bool
-		err := tx.QueryRow(
-			"SELECT last_offset FROM file_state WHERE file_path = ?", sf.Path,
-		).Scan(&lastOffset)
-		if err == nil {
-			hasRow = true
-		} else if err != sql.ErrNoRows {
-			result.SkippedFiles++
-			continue
+		if _, err := tx.Exec("SAVEPOINT file_sync"); err != nil {
+			return SyncResult{}, fmt.Errorf("savepoint: %w", err)
 		}
 
-		// Check current size
-		fi, err := os.Stat(sf.Path)
+		synced, newRecords, err := syncOneFile(tx, insertRec, sf)
 		if err != nil {
-			result.SkippedFiles++
-			continue
-		}
-		if fi.Size() <= lastOffset {
-			result.SkippedFiles++
-			continue
-		}
-
-		// Read only new bytes
-		f, err := os.Open(sf.Path)
-		if err != nil {
+			if rbErr := rollbackFileSyncSavepoint(tx); rbErr != nil {
+				return SyncResult{}, fmt.Errorf("rollback savepoint: %w (original: %v)", rbErr, err)
+			}
 			result.SkippedFiles++
 			continue
 		}
 
-		if lastOffset > 0 {
-			if _, err := f.Seek(lastOffset, io.SeekStart); err != nil {
-				f.Close()
-				result.SkippedFiles++
-				continue
-			}
+		if _, err := tx.Exec("RELEASE file_sync"); err != nil {
+			return SyncResult{}, fmt.Errorf("release savepoint: %w", err)
 		}
 
-		var batchCount int
-		var newOffset int64 = lastOffset
-
-		scanner := bufio.NewScanner(f)
-		scanner.Buffer(make([]byte, 2*1024*1024), 2*1024*1024)
-		for scanner.Scan() {
-			raw := scanner.Bytes()
-			newOffset += int64(len(raw)) + 1 // +1 for newline
-
-			rec := ParseLine(sf.AgentName, raw)
-			if rec == nil {
-				continue
-			}
-
-			var hour, dow interface{}
-			if rec.Hour != nil {
-				hour = *rec.Hour
-			}
-			if rec.DOW != nil {
-				dow = *rec.DOW
-			}
-
-			if _, err := insertRec.Exec(
-				rec.AgentName, rec.Model, rec.DateKey,
-				rec.Tokens, rec.Cost, hour, dow,
-			); err != nil {
-				continue
-			}
-			batchCount++
-		}
-		f.Close()
-
-		if scanner.Err() != nil {
-			result.SkippedFiles++
-			continue
-		}
-
-		// Update or insert file_state
-		if hasRow {
-			if _, err := tx.Exec(
-				"UPDATE file_state SET last_offset = ? WHERE file_path = ?",
-				newOffset, sf.Path,
-			); err != nil {
-				result.SkippedFiles++
-				continue
-			}
+		if synced {
+			result.SyncedFiles++
+			result.NewRecords += newRecords
 		} else {
-			if _, err := tx.Exec(
-				"INSERT INTO file_state (file_path, agent_name, last_offset) VALUES (?, ?, ?)",
-				sf.Path, sf.AgentName, newOffset,
-			); err != nil {
-				result.SkippedFiles++
-				continue
-			}
+			result.SkippedFiles++
 		}
-
-		result.NewRecords += batchCount
-		result.SyncedFiles++
 	}
 
 	if err := tx.Commit(); err != nil {
 		return SyncResult{}, err
 	}
 	return result, nil
+}
+
+func rollbackFileSyncSavepoint(tx *sql.Tx) error {
+	if _, err := tx.Exec("ROLLBACK TO file_sync"); err != nil {
+		return err
+	}
+	_, err := tx.Exec("RELEASE file_sync")
+	return err
+}
+
+// syncOneFile applies an incremental update for a single session file.
+// Returns synced=false when there is simply nothing new to process.
+func syncOneFile(tx *sql.Tx, insertRec *sql.Stmt, sf SessionFile) (bool, int, error) {
+	// Get last offset
+	var lastOffset int64
+	var hasRow bool
+	err := tx.QueryRow(
+		"SELECT last_offset FROM file_state WHERE file_path = ?", sf.Path,
+	).Scan(&lastOffset)
+	if err == nil {
+		hasRow = true
+	} else if err != sql.ErrNoRows {
+		return false, 0, err
+	}
+
+	// Check current size
+	fi, err := os.Stat(sf.Path)
+	if err != nil {
+		return false, 0, err
+	}
+
+	// File was truncated or rotated: reset offset and re-read from the beginning.
+	if hasRow && fi.Size() < lastOffset {
+		if _, err := tx.Exec(
+			"DELETE FROM usage_records WHERE source_file = ?",
+			sf.Path,
+		); err != nil {
+			return false, 0, err
+		}
+		lastOffset = 0
+		if _, err := tx.Exec(
+			"UPDATE file_state SET last_offset = 0 WHERE file_path = ?",
+			sf.Path,
+		); err != nil {
+			return false, 0, err
+		}
+	}
+
+	if fi.Size() <= lastOffset {
+		return false, 0, nil
+	}
+
+	// Read only new bytes
+	f, err := os.Open(sf.Path)
+	if err != nil {
+		return false, 0, err
+	}
+	defer f.Close()
+
+	if lastOffset > 0 {
+		if _, err := f.Seek(lastOffset, io.SeekStart); err != nil {
+			return false, 0, err
+		}
+	}
+
+	var batchCount int
+	newOffset := lastOffset
+
+	scanner := bufio.NewScanner(f)
+	scanner.Buffer(make([]byte, 2*1024*1024), 2*1024*1024)
+	for scanner.Scan() {
+		raw := scanner.Bytes()
+		lineOffset := newOffset
+		newOffset += int64(len(raw)) + 1 // +1 for newline
+
+		rec := ParseLine(sf.AgentName, raw)
+		if rec == nil {
+			continue
+		}
+
+		var hour, dow interface{}
+		if rec.Hour != nil {
+			hour = *rec.Hour
+		}
+		if rec.DOW != nil {
+			dow = *rec.DOW
+		}
+
+		if _, err := insertRec.Exec(
+			rec.AgentName, rec.Model, rec.DateKey,
+			rec.Tokens, rec.Cost, hour, dow, sf.Path, lineOffset,
+		); err != nil {
+			return false, 0, err
+		}
+		batchCount++
+	}
+
+	if err := scanner.Err(); err != nil {
+		return false, 0, err
+	}
+
+	// Update or insert file_state
+	if hasRow {
+		if _, err := tx.Exec(
+			"UPDATE file_state SET last_offset = ? WHERE file_path = ?",
+			newOffset, sf.Path,
+		); err != nil {
+			return false, 0, err
+		}
+	} else {
+		if _, err := tx.Exec(
+			"INSERT INTO file_state (file_path, agent_name, last_offset) VALUES (?, ?, ?)",
+			sf.Path, sf.AgentName, newOffset,
+		); err != nil {
+			return false, 0, err
+		}
+	}
+
+	return true, batchCount, nil
 }
 
 // ─── aggregation types ────────────────────────────────────────────────────────
@@ -263,15 +338,15 @@ type Summary struct {
 }
 
 type StatsResponse struct {
-	GeneratedAt  string        `json:"generated_at"`
-	Source       string        `json:"source"`
-	Cached       bool          `json:"cached"`
-	Sync         SyncResult    `json:"sync"`
-	Summary      Summary       `json:"summary"`
-	AgentTotals  []AgentTotal  `json:"agent_totals"`
-	ModelTotals  []ModelTotal  `json:"model_totals"`
-	DailyTokens  []DailyTokens `json:"daily_tokens"`
-	Heatmap      []HeatmapCell `json:"heatmap"`
+	GeneratedAt string        `json:"generated_at"`
+	Source      string        `json:"source"`
+	Cached      bool          `json:"cached"`
+	Sync        SyncResult    `json:"sync"`
+	Summary     Summary       `json:"summary"`
+	AgentTotals []AgentTotal  `json:"agent_totals"`
+	ModelTotals []ModelTotal  `json:"model_totals"`
+	DailyTokens []DailyTokens `json:"daily_tokens"`
+	Heatmap     []HeatmapCell `json:"heatmap"`
 }
 
 // CollectStats syncs then aggregates data from the SQLite cache.
@@ -281,8 +356,9 @@ func CollectStats(db *sql.DB, agentsDir, startDate, endDate string) (StatsRespon
 		return StatsResponse{}, fmt.Errorf("sync: %w", err)
 	}
 
-	// Build date filter SQL
-	// "unknown" records always included; dated records filtered by range.
+	// Build date filter SQL.
+	// If a date range is provided, unknown dates are excluded so presets like
+	// "today/7d/30d" align with user expectations in the UI.
 	var dateWhere string
 	var dateParams []interface{}
 
@@ -297,9 +373,7 @@ func CollectStats(db *sql.DB, agentsDir, startDate, endDate string) (StatsRespon
 	}
 
 	if len(rangeParts) > 0 {
-		// unknown records always included; date range parts must ALL match (AND)
-		rangeClause := strings.Join(rangeParts, " AND ")
-		dateWhere = "(date_key = 'unknown' OR (" + rangeClause + "))"
+		dateWhere = "date_key != 'unknown' AND (" + strings.Join(rangeParts, " AND ") + ")"
 	} else {
 		dateWhere = "1=1" // no filter
 	}
