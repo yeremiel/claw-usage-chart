@@ -537,15 +537,44 @@
 
     function updateModelTable(modelTotals) {
       const body = document.getElementById('modelTableBody');
-      const rows = modelTotals.slice(0, 12).map(item => `
-        <tr>
-          <td>${item.model}</td>
-          <td class="num">${formatTokens(item.tokens)}</td>
-          <td class="num" style="color:#4de88e">${formatCost(item.cost)}</td>
-          <td class="num">${formatNumber(item.records)}</td>
-        </tr>
-      `);
-      body.innerHTML = rows.length ? rows.join('') : '<tr><td colspan="4">No data.</td></tr>';
+      body.textContent = '';
+
+      const rows = modelTotals.slice(0, 12);
+      if (!rows.length) {
+        const tr = document.createElement('tr');
+        const td = document.createElement('td');
+        td.colSpan = 4;
+        td.textContent = 'No data.';
+        tr.appendChild(td);
+        body.appendChild(tr);
+        return;
+      }
+
+      for (const item of rows) {
+        const tr = document.createElement('tr');
+
+        const modelCell = document.createElement('td');
+        modelCell.textContent = item.model || 'unknown';
+
+        const tokenCell = document.createElement('td');
+        tokenCell.className = 'num';
+        tokenCell.textContent = formatTokens(item.tokens);
+
+        const costCell = document.createElement('td');
+        costCell.className = 'num';
+        costCell.style.color = '#4de88e';
+        costCell.textContent = formatCost(item.cost);
+
+        const recordCell = document.createElement('td');
+        recordCell.className = 'num';
+        recordCell.textContent = formatNumber(item.records);
+
+        tr.appendChild(modelCell);
+        tr.appendChild(tokenCell);
+        tr.appendChild(costCell);
+        tr.appendChild(recordCell);
+        body.appendChild(tr);
+      }
     }
 
     const PALETTE = ['#42d3ff','#4de88e','#ffb84a','#78f0d4','#5f9dff','#f78357','#8bcf7a','#d7aa5f','#5f6979'];
@@ -733,7 +762,7 @@
             : 'rgba(255,255,255,0.04)';
           if (e) {
             cell.addEventListener('mouseenter', () => {
-              _hmTip.innerHTML = `<b>${DAYS[dow]} ${String(h).padStart(2,'0')}:00</b><br>${formatTokens(e.tokens)} tokens &nbsp;·&nbsp; ${formatCost(e.cost)}`;
+              _hmTip.textContent = `${DAYS[dow]} ${String(h).padStart(2,'0')}:00 · ${formatTokens(e.tokens)} tokens · ${formatCost(e.cost)}`;
               _hmTip.style.display = 'block';
             });
             cell.addEventListener('mouseleave', () => { _hmTip.style.display = 'none'; });
