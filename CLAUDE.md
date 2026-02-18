@@ -53,7 +53,9 @@ CREATE TABLE usage_records (
     tokens      INTEGER NOT NULL,
     cost        REAL    NOT NULL DEFAULT 0.0,
     hour        INTEGER,           -- 0-23, local time (nullable)
-    dow         INTEGER            -- 0=Mon .. 6=Sun (nullable)
+    dow         INTEGER,           -- 0=Mon .. 6=Sun (nullable)
+    source_file TEXT    NOT NULL,  -- absolute session file path
+    source_offset INTEGER NOT NULL -- byte offset of the JSONL line in source_file
 );
 ```
 
@@ -97,7 +99,7 @@ The `usage` field may be at the record's top level or nested inside `message.usa
 ## Notes
 
 - Editing `index.html` requires a rebuild (`go build`) to take effect due to `//go:embed`. Use `go run .` during UI iteration to skip the manual build step.
-- When changing the SQLite schema, review the migration logic in `ensureSchema` (currently drops and rebuilds tables when `hour`/`dow` columns are missing).
+- When changing the SQLite schema, review the migration logic in `ensureSchema` (currently drops and rebuilds cache tables when required columns are missing).
 - To reset the cache: `rm usage_cache.db` — the next run will re-parse all files from scratch.
 - No test files exist yet. Add tests in `*_test.go` files.
 

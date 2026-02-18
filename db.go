@@ -28,12 +28,16 @@ CREATE TABLE IF NOT EXISTS usage_records (
     tokens      INTEGER NOT NULL,
     cost        REAL    NOT NULL DEFAULT 0.0,
     hour        INTEGER,
-    dow         INTEGER
+    dow         INTEGER,
+    source_file TEXT    NOT NULL,
+    source_offset INTEGER NOT NULL
 );
 
 CREATE INDEX IF NOT EXISTS idx_rec_agent ON usage_records(agent_name);
 CREATE INDEX IF NOT EXISTS idx_rec_model ON usage_records(model);
 CREATE INDEX IF NOT EXISTS idx_rec_date  ON usage_records(date_key);
+CREATE INDEX IF NOT EXISTS idx_rec_source_file ON usage_records(source_file);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_rec_source_line ON usage_records(source_file, source_offset);
 `
 
 // openDB opens (or creates) the SQLite database at dbPath.
@@ -58,23 +62,42 @@ func openDB(dbPath string) (*sql.DB, error) {
 }
 
 // ensureSchema creates the tables and indices if needed.
-// If the table is missing the hour/dow columns it drops and rebuilds everything.
+// If required columns are missing it drops and rebuilds cache tables.
 func ensureSchema(db *sql.DB) error {
-	// Check if hour/dow columns exist
+	requiredUsageCols := map[string]bool{
+		"hour":          false,
+		"dow":           false,
+		"source_file":   false,
+		"source_offset": false,
+	}
+
 	rows, err := db.Query("PRAGMA table_info(usage_records)")
 	if err == nil {
-		cols := map[string]bool{}
+		var sawUsageTableColumn bool
 		for rows.Next() {
+			sawUsageTableColumn = true
 			var cid int
 			var name, ctype string
 			var notnull, dflt, pk interface{}
 			if err := rows.Scan(&cid, &name, &ctype, &notnull, &dflt, &pk); err == nil {
-				cols[name] = true
+				if _, ok := requiredUsageCols[name]; ok {
+					requiredUsageCols[name] = true
+				}
 			}
 		}
 		rows.Close()
-		if len(cols) > 0 && (!cols["hour"] || !cols["dow"]) {
-			// Drop and rebuild
+
+		needsRebuild := false
+		if sawUsageTableColumn {
+			for _, exists := range requiredUsageCols {
+				if !exists {
+					needsRebuild = true
+					break
+				}
+			}
+		}
+
+		if needsRebuild {
 			if _, err := db.Exec("DROP TABLE IF EXISTS usage_records"); err != nil {
 				return err
 			}
@@ -116,8 +139,8 @@ func Sync(db *sql.DB, agentsDir string) (SyncResult, error) {
 	defer tx.Rollback()
 
 	insertRec, err := tx.Prepare(`
-		INSERT INTO usage_records (agent_name, model, date_key, tokens, cost, hour, dow)
-		VALUES (?, ?, ?, ?, ?, ?, ?)`)
+		INSERT INTO usage_records (agent_name, model, date_key, tokens, cost, hour, dow, source_file, source_offset)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`)
 	if err != nil {
 		return SyncResult{}, err
 	}
@@ -186,6 +209,12 @@ func syncOneFile(tx *sql.Tx, insertRec *sql.Stmt, sf SessionFile) (bool, int, er
 
 	// File was truncated or rotated: reset offset and re-read from the beginning.
 	if hasRow && fi.Size() < lastOffset {
+		if _, err := tx.Exec(
+			"DELETE FROM usage_records WHERE source_file = ?",
+			sf.Path,
+		); err != nil {
+			return false, 0, err
+		}
 		lastOffset = 0
 		if _, err := tx.Exec(
 			"UPDATE file_state SET last_offset = 0 WHERE file_path = ?",
@@ -219,6 +248,7 @@ func syncOneFile(tx *sql.Tx, insertRec *sql.Stmt, sf SessionFile) (bool, int, er
 	scanner.Buffer(make([]byte, 2*1024*1024), 2*1024*1024)
 	for scanner.Scan() {
 		raw := scanner.Bytes()
+		lineOffset := newOffset
 		newOffset += int64(len(raw)) + 1 // +1 for newline
 
 		rec := ParseLine(sf.AgentName, raw)
@@ -236,7 +266,7 @@ func syncOneFile(tx *sql.Tx, insertRec *sql.Stmt, sf SessionFile) (bool, int, er
 
 		if _, err := insertRec.Exec(
 			rec.AgentName, rec.Model, rec.DateKey,
-			rec.Tokens, rec.Cost, hour, dow,
+			rec.Tokens, rec.Cost, hour, dow, sf.Path, lineOffset,
 		); err != nil {
 			return false, 0, err
 		}
