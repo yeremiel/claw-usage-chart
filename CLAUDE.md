@@ -10,20 +10,38 @@ A lightweight local web dashboard for visualizing [OpenClaw](https://github.com/
 
 ```bash
 go build -o claw-usage-chart .    # build
+go build -ldflags "-X main.version=1.0.0" -o claw-usage-chart .  # build with version
 ./claw-usage-chart                # run (default: http://localhost:8585)
 go run .                          # run without producing a binary
 ```
 
-Environment variables:
+### CLI Flags
+
+| Flag | Short | Description |
+|------|-------|-------------|
+| `--port` | `-p` | 서버 포트 (기본: 8585, 환경변수보다 우선) |
+| `--host` | — | 바인드 주소 (기본: 0.0.0.0, 환경변수보다 우선) |
+| `--daemon` | `-d` | 백그라운드 데몬으로 실행 |
+| `--stop` | — | 실행 중인 데몬 종료 |
+| `--status` | — | 데몬 실행 상태 확인 |
+| `--open` | `-o` | 서버 시작 후 브라우저 열기 |
+| `--reset` | — | 시작 전 SQLite 캐시 삭제 |
+| `--version` | `-v` | 버전 출력 후 종료 |
+
+### Environment Variables
+
+환경변수는 CLI 플래그가 지정되지 않았을 때 사용됨.
+
 - `OCL_PORT` (default `8585`), `OCL_HOST` (default `0.0.0.0`)
 - `OCL_AGENTS_DIR` (default `~/.openclaw/agents`) — path to OpenClaw JSONL session files
 - `OCL_DB_PATH` (default `usage_cache.db` next to the binary)
 
 ## Architecture
 
-Single package (`main`), three Go files:
+Single package (`main`), four Go files:
 
-- **main.go** — HTTP server, routing (`/`, `/favicon.svg`, `/api/stats`, `/health`), serves static files via `embed.FS`
+- **main.go** — HTTP server, routing (`/`, `/favicon.svg`, `/api/stats`, `/health`), serves static files via `embed.FS`, graceful shutdown
+- **cli.go** — CLI flag parsing (`ParseFlags`), daemon management (fork/stop/status via PID file), browser open, cache reset, version
 - **parser.go** — walks `~/.openclaw/agents/<agent>/sessions/*.jsonl` (`IterSessionFiles`), parses each line into a `UsageRecord` (`ParseLine`). Handles multiple JSONL formats (camelCase/snake_case, nested `message.usage`, etc.)
 - **db.go** — SQLite cache layer. Incremental sync via per-file byte-offset tracking (`Sync`), aggregation queries (`CollectStats`). Uses WAL mode.
 
@@ -100,7 +118,9 @@ The `usage` field may be at the record's top level or nested inside `message.usa
 
 - Editing `index.html` requires a rebuild (`go build`) to take effect due to `//go:embed`. Use `go run .` during UI iteration to skip the manual build step.
 - When changing the SQLite schema, review the migration logic in `ensureSchema` (currently drops and rebuilds cache tables when required columns are missing).
-- To reset the cache: `rm usage_cache.db` — the next run will re-parse all files from scratch.
+- To reset the cache: `./claw-usage-chart --reset` or `rm usage_cache.db` — the next run will re-parse all files from scratch.
+- Daemon PID file: `/tmp/claw-usage-chart.pid` — managed automatically by `--daemon`/`--stop`.
+- Version is injectable via ldflags: `go build -ldflags "-X main.version=1.0.0" -o claw-usage-chart .`
 - No test files exist yet. Add tests in `*_test.go` files.
 
 ## Git Workflow (Protected `main`)

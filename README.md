@@ -14,6 +14,12 @@ A lightweight local web dashboard for visualizing your [OpenClaw](https://github
 - **Daily token trend chart**
 - **Usage heatmap** — token activity by hour of day × day of week
 
+## Build with Version
+
+```bash
+go build -ldflags "-X main.version=$(git describe --tags --always --dirty)" -o claw-usage-chart .
+```
+
 ## Requirements
 
 - Go 1.22+ (to build)
@@ -25,14 +31,37 @@ A lightweight local web dashboard for visualizing your [OpenClaw](https://github
 git clone https://github.com/yeremiel/claw-usage-chart.git
 cd claw-usage-chart
 go build -o claw-usage-chart .
-./claw-usage-chart
+./claw-usage-chart --open
 ```
 
-Then open http://localhost:8585 in your browser.
+`--open` 플래그를 사용하면 서버 시작 후 브라우저가 자동으로 열립니다. 생략하면 직접 http://localhost:8585 에 접속하세요.
 
 ## Configuration
 
-All settings are via environment variables — no config file needed.
+### CLI Flags
+
+| Flag | Short | Description |
+|------|-------|-------------|
+| `--port` | `-p` | 서버 포트 (기본: 8585) |
+| `--host` | | 바인드 주소 (기본: 0.0.0.0) |
+| `--daemon` | `-d` | 백그라운드 데몬으로 실행 |
+| `--stop` | | 실행 중인 데몬 종료 |
+| `--status` | | 데몬 실행 상태 확인 |
+| `--open` | `-o` | 서버 시작 후 브라우저 열기 |
+| `--reset` | | SQLite 캐시 삭제 후 시작 |
+| `--version` | `-v` | 버전 출력 |
+
+```bash
+./claw-usage-chart -p 9000 --open          # 포트 9000, 브라우저 자동 열기
+./claw-usage-chart --daemon --open         # 백그라운드 실행 + 브라우저
+./claw-usage-chart --status                # 데몬 상태 확인
+./claw-usage-chart --stop                  # 데몬 종료
+./claw-usage-chart --reset                 # 캐시 초기화 후 시작
+```
+
+### Environment Variables
+
+CLI 플래그가 지정되지 않았을 때 환경변수가 사용됩니다.
 
 | Variable | Default | Description |
 |---|---|---|
@@ -40,8 +69,6 @@ All settings are via environment variables — no config file needed.
 | `OCL_HOST` | `0.0.0.0` | Bind address |
 | `OCL_AGENTS_DIR` | `~/.openclaw/agents` | Path to OpenClaw agents directory |
 | `OCL_DB_PATH` | `<binary dir>/usage_cache.db` | Path to SQLite cache file |
-
-Example:
 
 ```bash
 OCL_PORT=9000 OCL_AGENTS_DIR=/custom/path ./claw-usage-chart
@@ -59,7 +86,17 @@ The first run builds the cache (a few seconds). Every subsequent call is fast re
 
 The dashboard UI (`index.html`) and icon (`favicon.svg`) are embedded directly in the binary at build time — no extra files needed at runtime.
 
-## Keep It Running (macOS)
+## Keep It Running
+
+### Built-in Daemon Mode
+
+```bash
+./claw-usage-chart --daemon         # 백그라운드 실행
+./claw-usage-chart --status         # 실행 상태 확인
+./claw-usage-chart --stop           # 종료
+```
+
+### macOS launchd (자동 시작 / 크래시 재시작)
 
 Create a launchd plist at `~/Library/LaunchAgents/com.openclaw.usage-dashboard.plist`:
 
@@ -97,7 +134,8 @@ launchctl load ~/Library/LaunchAgents/com.openclaw.usage-dashboard.plist
 
 ```
 claw-usage-chart/
-├── main.go       HTTP server + embedded static files
+├── main.go       HTTP server, routing, graceful shutdown
+├── cli.go        CLI flags, daemon management, browser open
 ├── db.go         SQLite incremental cache layer
 ├── parser.go     JSONL parser / usage extractor
 ├── index.html    Dashboard UI (Chart.js) — embedded in binary

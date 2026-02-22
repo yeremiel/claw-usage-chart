@@ -1,31 +1,34 @@
 package main
 
 import (
+	"context"
 	"database/sql"
-	"encoding/json"
 	"embed"
+	"encoding/json"
 	"fmt"
 	"log"
+	"net"
 	"net/http"
 	"os"
+	"os/signal"
 	"path/filepath"
+	"syscall"
+	"time"
 )
 
 //go:embed index.html favicon.svg
 var staticFiles embed.FS
 
 func main() {
-	// ── Environment config ────────────────────────────────────────────────────
-	host := getEnv("OCL_HOST", "0.0.0.0")
-	port := getEnv("OCL_PORT", "8585")
+	cfg := ParseFlags()
 
+	// ── 경로 설정 ────────────────────────────────────────────────────────────
 	home, err := os.UserHomeDir()
 	if err != nil {
-		log.Fatalf("cannot determine home dir: %v", err)
+		log.Fatalf("홈 디렉터리 확인 불가: %v", err)
 	}
 	agentsDir := getEnv("OCL_AGENTS_DIR", filepath.Join(home, ".openclaw", "agents"))
 
-	// DB path defaults to the directory containing the binary
 	var defaultDBPath string
 	exe, err := os.Executable()
 	if err == nil {
@@ -35,14 +38,28 @@ func main() {
 	}
 	dbPath := getEnv("OCL_DB_PATH", defaultDBPath)
 
-	// ── Open SQLite ───────────────────────────────────────────────────────────
+	// ── 시작 전 액션 ─────────────────────────────────────────────────────────
+	if cfg.Reset {
+		resetDBCache(dbPath)
+	}
+
+	// ── 데몬 fork (부모 경로) ────────────────────────────────────────────────
+	if cfg.Daemon && !isDaemonChild() {
+		forkDaemon()
+		if cfg.Open {
+			openBrowser(fmt.Sprintf("http://%s:%s", browserHost(cfg.Host), cfg.Port))
+		}
+		os.Exit(0)
+	}
+
+	// ── SQLite 열기 ──────────────────────────────────────────────────────────
 	db, err := openDB(dbPath)
 	if err != nil {
-		log.Fatalf("open db %s: %v", dbPath, err)
+		log.Fatalf("DB 열기 실패 %s: %v", dbPath, err)
 	}
 	defer db.Close()
 
-	// ── Routes ────────────────────────────────────────────────────────────────
+	// ── 라우트 ───────────────────────────────────────────────────────────────
 	mux := http.NewServeMux()
 
 	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
@@ -76,15 +93,56 @@ func main() {
 		w.Write([]byte(`{"ok":true}`))
 	})
 
-	// ── Start server ──────────────────────────────────────────────────────────
-	addr := fmt.Sprintf("%s:%s", host, port)
-	fmt.Printf("Claw Usage Chart → http://localhost:%s\n", port)
+	// ── Graceful shutdown ────────────────────────────────────────────────────
+	addr := fmt.Sprintf("%s:%s", cfg.Host, cfg.Port)
+	srv := &http.Server{
+		Addr:    addr,
+		Handler: loggingMiddleware(mux),
+	}
+
+	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
+	defer stop()
+
+	daemon := isDaemonChild()
+
+	go func() {
+		<-ctx.Done()
+		log.Println("종료 시그널 수신, 서버 종료 중...")
+		shutdownCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		if err := srv.Shutdown(shutdownCtx); err != nil {
+			log.Printf("서버 종료 오류: %v", err)
+		}
+		if daemon {
+			removePIDFile()
+		}
+	}()
+
+	// ── 서버 시작 ────────────────────────────────────────────────────────────
+	ln, err := net.Listen("tcp", addr)
+	if err != nil {
+		log.Fatalf("포트 바인딩 실패 %s: %v", addr, err)
+	}
+
+	// 리스너가 성공한 후에만 PID 파일 작성 (포트 충돌 시 stale PID 방지)
+	if daemon {
+		if err := writePIDFile(); err != nil {
+			log.Fatalf("PID 파일 쓰기 실패: %v", err)
+		}
+	}
+
+	fmt.Printf("Claw Usage Chart → http://localhost:%s\n", cfg.Port)
 	fmt.Printf("  Agents dir : %s\n", agentsDir)
 	fmt.Printf("  DB cache   : %s\n", dbPath)
 
-	if err := http.ListenAndServe(addr, loggingMiddleware(mux)); err != nil {
-		log.Fatalf("server error: %v", err)
+	if cfg.Open && !daemon {
+		openBrowser(fmt.Sprintf("http://%s:%s", browserHost(cfg.Host), cfg.Port))
 	}
+
+	if err := srv.Serve(ln); err != http.ErrServerClosed {
+		log.Fatalf("서버 오류: %v", err)
+	}
+	log.Println("서버 정상 종료")
 }
 
 func statsHandler(db *sql.DB, agentsDir string) http.HandlerFunc {
