@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"log"
+	"net"
 	"net/http"
 	"os"
 	"os/signal"
@@ -49,13 +50,6 @@ func main() {
 			openBrowser(fmt.Sprintf("http://localhost:%s", cfg.Port))
 		}
 		os.Exit(0)
-	}
-
-	// ── 여기서부터: 포그라운드 또는 데몬 자식 ────────────────────────────────
-	if isDaemonChild() {
-		if err := writePIDFile(); err != nil {
-			log.Fatalf("PID 파일 쓰기 실패: %v", err)
-		}
 	}
 
 	// ── SQLite 열기 ──────────────────────────────────────────────────────────
@@ -109,6 +103,8 @@ func main() {
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
 
+	daemon := isDaemonChild()
+
 	go func() {
 		<-ctx.Done()
 		log.Println("종료 시그널 수신, 서버 종료 중...")
@@ -117,19 +113,33 @@ func main() {
 		if err := srv.Shutdown(shutdownCtx); err != nil {
 			log.Printf("서버 종료 오류: %v", err)
 		}
-		removePIDFile()
+		if daemon {
+			removePIDFile()
+		}
 	}()
 
 	// ── 서버 시작 ────────────────────────────────────────────────────────────
+	ln, err := net.Listen("tcp", addr)
+	if err != nil {
+		log.Fatalf("포트 바인딩 실패 %s: %v", addr, err)
+	}
+
+	// 리스너가 성공한 후에만 PID 파일 작성 (포트 충돌 시 stale PID 방지)
+	if daemon {
+		if err := writePIDFile(); err != nil {
+			log.Fatalf("PID 파일 쓰기 실패: %v", err)
+		}
+	}
+
 	fmt.Printf("Claw Usage Chart → http://localhost:%s\n", cfg.Port)
 	fmt.Printf("  Agents dir : %s\n", agentsDir)
 	fmt.Printf("  DB cache   : %s\n", dbPath)
 
-	if cfg.Open && !isDaemonChild() {
+	if cfg.Open && !daemon {
 		openBrowser(fmt.Sprintf("http://localhost:%s", cfg.Port))
 	}
 
-	if err := srv.ListenAndServe(); err != http.ErrServerClosed {
+	if err := srv.Serve(ln); err != http.ErrServerClosed {
 		log.Fatalf("서버 오류: %v", err)
 	}
 	log.Println("서버 정상 종료")
