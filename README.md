@@ -34,7 +34,7 @@ go build -o claw-usage-chart .
 ./claw-usage-chart --open
 ```
 
-`--open` 플래그를 사용하면 서버 시작 후 브라우저가 자동으로 열립니다. 생략하면 직접 http://localhost:8585 에 접속하세요.
+The `--open` flag automatically opens your browser after the server starts. Without it, navigate to http://localhost:8585 manually.
 
 ## Configuration
 
@@ -42,26 +42,26 @@ go build -o claw-usage-chart .
 
 | Flag | Short | Description |
 |------|-------|-------------|
-| `--port` | `-p` | 서버 포트 (기본: 8585) |
-| `--host` | | 바인드 주소 (기본: 0.0.0.0) |
-| `--daemon` | `-d` | 백그라운드 데몬으로 실행 |
-| `--stop` | | 실행 중인 데몬 종료 |
-| `--status` | | 데몬 실행 상태 확인 |
-| `--open` | `-o` | 서버 시작 후 브라우저 열기 |
-| `--reset` | | SQLite 캐시 삭제 후 시작 |
-| `--version` | `-v` | 버전 출력 |
+| `--port` | `-p` | Server port (default: 8585) |
+| `--host` | | Bind address (default: 0.0.0.0) |
+| `--daemon` | `-d` | Run as background daemon |
+| `--stop` | | Stop running daemon |
+| `--status` | | Check daemon status |
+| `--open` | `-o` | Open browser after server starts |
+| `--reset` | | Delete SQLite cache before starting |
+| `--version` | `-v` | Print version |
 
 ```bash
-./claw-usage-chart -p 9000 --open          # 포트 9000, 브라우저 자동 열기
-./claw-usage-chart --daemon --open         # 백그라운드 실행 + 브라우저
-./claw-usage-chart --status                # 데몬 상태 확인
-./claw-usage-chart --stop                  # 데몬 종료
-./claw-usage-chart --reset                 # 캐시 초기화 후 시작
+./claw-usage-chart -p 9000 --open          # port 9000, auto-open browser
+./claw-usage-chart --daemon --open         # background + browser
+./claw-usage-chart --status                # check daemon status
+./claw-usage-chart --stop                  # stop daemon
+./claw-usage-chart --reset                 # reset cache and start
 ```
 
 ### Environment Variables
 
-CLI 플래그가 지정되지 않았을 때 환경변수가 사용됩니다.
+Environment variables are used as fallbacks when CLI flags are not specified.
 
 | Variable | Default | Description |
 |---|---|---|
@@ -91,12 +91,12 @@ The dashboard UI (`index.html`) and icon (`favicon.svg`) are embedded directly i
 ### Built-in Daemon Mode
 
 ```bash
-./claw-usage-chart --daemon         # 백그라운드 실행
-./claw-usage-chart --status         # 실행 상태 확인
-./claw-usage-chart --stop           # 종료
+./claw-usage-chart --daemon         # start in background
+./claw-usage-chart --status         # check if running
+./claw-usage-chart --stop           # stop daemon
 ```
 
-### macOS launchd (자동 시작 / 크래시 재시작)
+### macOS launchd (auto-start / crash restart)
 
 Create a launchd plist at `~/Library/LaunchAgents/com.openclaw.usage-dashboard.plist`:
 
