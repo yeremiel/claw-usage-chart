@@ -115,7 +115,7 @@ func isProcessRunning(pid int) bool {
 
 func checkDaemonStatus() {
 	pid := readPID()
-	if pid > 0 && isProcessRunning(pid) {
+	if pid > 0 && isProcessRunning(pid) && isOwnProcess(pid) {
 		fmt.Printf("claw-usage-chart 데몬 실행 중 (PID %d)\n", pid)
 	} else {
 		fmt.Println("claw-usage-chart 데몬이 실행 중이 아닙니다")
@@ -178,6 +178,7 @@ func forkDaemon() {
 	cmd.Stdout = nil
 	cmd.Stderr = nil
 	cmd.Stdin = nil
+	cmd.SysProcAttr = &syscall.SysProcAttr{Setsid: true}
 
 	if err := cmd.Start(); err != nil {
 		log.Fatalf("데몬 프로세스 시작 실패: %v", err)
