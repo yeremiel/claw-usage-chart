@@ -47,7 +47,7 @@ func main() {
 	if cfg.Daemon && !isDaemonChild() {
 		forkDaemon()
 		if cfg.Open {
-			openBrowser(fmt.Sprintf("http://localhost:%s", cfg.Port))
+			openBrowser(fmt.Sprintf("http://%s:%s", browserHost(cfg.Host), cfg.Port))
 		}
 		os.Exit(0)
 	}
@@ -136,7 +136,7 @@ func main() {
 	fmt.Printf("  DB cache   : %s\n", dbPath)
 
 	if cfg.Open && !daemon {
-		openBrowser(fmt.Sprintf("http://localhost:%s", cfg.Port))
+		openBrowser(fmt.Sprintf("http://%s:%s", browserHost(cfg.Host), cfg.Port))
 	}
 
 	if err := srv.Serve(ln); err != http.ErrServerClosed {

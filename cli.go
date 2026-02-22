@@ -132,6 +132,11 @@ func stopDaemon() {
 		removePIDFile()
 		return
 	}
+	if !isOwnProcess(pid) {
+		fmt.Printf("PID %d 은 claw-usage-chart 프로세스가 아닙니다 (stale PID 파일 삭제)\n", pid)
+		removePIDFile()
+		return
+	}
 	proc, err := os.FindProcess(pid)
 	if err != nil {
 		log.Fatalf("프로세스 찾기 실패 (PID %d): %v", pid, err)
@@ -140,6 +145,20 @@ func stopDaemon() {
 		log.Fatalf("SIGTERM 전송 실패 (PID %d): %v", pid, err)
 	}
 	fmt.Printf("claw-usage-chart 데몬에 종료 신호 전송 (PID %d)\n", pid)
+}
+
+// isOwnProcess는 해당 PID의 프로세스가 claw-usage-chart 바이너리인지 확인한다.
+func isOwnProcess(pid int) bool {
+	exe, err := os.Readlink(fmt.Sprintf("/proc/%d/exe", pid))
+	if err == nil {
+		return strings.Contains(exe, "claw-usage-chart")
+	}
+	// macOS: /proc 없으므로 ps로 확인
+	out, err := exec.Command("ps", "-p", strconv.Itoa(pid), "-o", "comm=").Output()
+	if err != nil {
+		return false
+	}
+	return strings.Contains(strings.TrimSpace(string(out)), "claw-usage-chart")
 }
 
 func isDaemonChild() bool {
@@ -168,6 +187,15 @@ func forkDaemon() {
 }
 
 // ── 유틸리티 ───────────────────────────────────────────────────────────────
+
+// browserHost는 브라우저에서 접속할 호스트를 반환한다.
+// 와일드카드 바인드(0.0.0.0, ::)인 경우 localhost로 대체.
+func browserHost(host string) string {
+	if host == "0.0.0.0" || host == "::" || host == "" {
+		return "localhost"
+	}
+	return host
+}
 
 func openBrowser(url string) {
 	var cmd string
