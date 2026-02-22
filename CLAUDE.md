@@ -19,18 +19,18 @@ go run .                          # run without producing a binary
 
 | Flag | Short | Description |
 |------|-------|-------------|
-| `--port` | `-p` | 서버 포트 (기본: 8585, 환경변수보다 우선) |
-| `--host` | — | 바인드 주소 (기본: 0.0.0.0, 환경변수보다 우선) |
-| `--daemon` | `-d` | 백그라운드 데몬으로 실행 |
-| `--stop` | — | 실행 중인 데몬 종료 |
-| `--status` | — | 데몬 실행 상태 확인 |
-| `--open` | `-o` | 서버 시작 후 브라우저 열기 |
-| `--reset` | — | 시작 전 SQLite 캐시 삭제 |
-| `--version` | `-v` | 버전 출력 후 종료 |
+| `--port` | `-p` | Server port (default: 8585, overrides env var) |
+| `--host` | — | Bind address (default: 0.0.0.0, overrides env var) |
+| `--daemon` | `-d` | Run as background daemon |
+| `--stop` | — | Stop running daemon |
+| `--status` | — | Check daemon status |
+| `--open` | `-o` | Open browser after server starts |
+| `--reset` | — | Delete SQLite cache before starting |
+| `--version` | `-v` | Print version and exit |
 
 ### Environment Variables
 
-환경변수는 CLI 플래그가 지정되지 않았을 때 사용됨.
+Environment variables are used as fallbacks when CLI flags are not specified.
 
 - `OCL_PORT` (default `8585`), `OCL_HOST` (default `0.0.0.0`)
 - `OCL_AGENTS_DIR` (default `~/.openclaw/agents`) — path to OpenClaw JSONL session files
@@ -122,6 +122,11 @@ The `usage` field may be at the record's top level or nested inside `message.usa
 - Daemon PID file: `/tmp/claw-usage-chart.pid` — managed automatically by `--daemon`/`--stop`.
 - Version is injectable via ldflags: `go build -ldflags "-X main.version=1.0.0" -o claw-usage-chart .`
 - No test files exist yet. Add tests in `*_test.go` files.
+
+## Language Convention
+
+- All code comments, documentation, and commit messages must be written in **English**.
+- Code identifiers (variables, functions, etc.) use English as well.
 
 ## Git Workflow (Protected `main`)
 
